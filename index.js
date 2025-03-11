@@ -1,3 +1,5 @@
+// File: api/socket.js
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -5,15 +7,22 @@ const axios = require("axios");
 const cors = require("cors");
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "http://localhost:5174" }, // Adjust if frontend URL changes
-});
-
 app.use(cors());
 
-const packageData = {}; // Stores package details for each tracked package
+// Create an HTTP server and attach the Express app.
+const httpServer = http.createServer(app);
 
+// IMPORTANT: In a serverless environment, persistent connections (like those for Socket.IO)
+// may be problematic. Vercel’s functions are ephemeral and may time out if idle.
+// Consider using a dedicated backend for real-time connections.
+const io = new Server(httpServer, {
+  cors: { origin: "*" },
+});
+
+// Storage for package details.
+const packageData = {};
+
+// Helper functions for fetching package stats.
 const fetchPackageStats = async (packageName) => {
   try {
     const url = `https://api.npmjs.org/downloads/point/last-day/${packageName}`;
@@ -49,14 +58,13 @@ const fetchWeeklyDownloads = async (packageName) => {
 
 const fetchTotalDownloads = async (packageName) => {
   try {
-    // Using a fixed date range starting from 2015-01-01 to current date
+    // Using a fixed date range from 2015-01-01 to today.
     const startDate = "2015-01-01";
     const endDate = new Date().toISOString().split("T")[0];
     const url = `https://api.npmjs.org/downloads/range/${startDate}:${endDate}/${packageName}`;
     const response = await axios.get(url);
     if (response.data && response.data.downloads) {
-      const total = response.data.downloads.reduce((acc, item) => acc + item.downloads, 0);
-      return total;
+      return response.data.downloads.reduce((acc, item) => acc + item.downloads, 0);
     }
     return null;
   } catch (error) {
@@ -80,9 +88,9 @@ io.on("connection", (socket) => {
       if (data && data2) {
         const { popularity, quality, maintenance } = data2.score.detail;
         const metadata = data2.collected.metadata;
-        const rate = data.downloads / 86400; // downloads per second based on last-day stats
+        const rate = data.downloads / 86400; // downloads per second (based on last-day stats)
         packageData[packageName] = {
-          baseDownloads: data.downloads, // starting point for daily downloads
+          baseDownloads: data.downloads,
           currentDownloads: data.downloads,
           baseWeeklyDownloads: weeklyDownloads,
           weeklyDownloads: weeklyDownloads,
@@ -139,6 +147,8 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(5000, () => {
-  console.log("Server running on port 5000");
-});
+// Instead of starting the server with listen (which Vercel does not require),
+// export a handler for incoming HTTP requests.
+module.exports = (req, res) => {
+  app(req, res);
+};

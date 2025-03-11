@@ -7,7 +7,7 @@ const cors = require("cors");
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "https://npms-six.vercel.app/" }, // Adjust if frontend URL changes
+  cors: { origin: "https://stat-taupe.vercel.app/" }, // Adjust if frontend URL changes
 });
 
 app.use(cors({

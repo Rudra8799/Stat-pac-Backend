@@ -7,12 +7,13 @@ const cors = require("cors");
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "http://localhost:5174" }, // Adjust if frontend URL changes
+  cors: { origin: "http://localhost:5173" }, // Adjust if frontend URL changes
 });
 
 app.use(cors());
 
 const packageData = {}; // Stores package details for each tracked package
+let currentpackage = null;
 
 const fetchPackageStats = async (packageName) => {
   try {
@@ -24,6 +25,19 @@ const fetchPackageStats = async (packageName) => {
     return null;
   }
 };
+
+const fetchdetails = async (packageName) => {
+  try {
+    const url = `https://registry.npmjs.org/${packageName}`;
+    const response = await axios.get(url);
+    return response.data;
+    
+  } catch (error) {
+    console.error("Error fetching package details:", error.message);
+    return null;
+  }
+
+}
 
 const fetchscores = async (packageName) => {
   try {
@@ -68,14 +82,18 @@ const fetchTotalDownloads = async (packageName) => {
 io.on("connection", (socket) => {
   console.log("Client connected");
 
+
   socket.on("trackPackage", async (packageName) => {
     console.log(`Tracking package: ${packageName}`);
 
     if (!packageData[packageName]) {
+      currentpackage = null; 
+      
       const data = await fetchPackageStats(packageName);
       const data2 = await fetchscores(packageName);
       const weeklyDownloads = await fetchWeeklyDownloads(packageName);
       const totalDownloads = await fetchTotalDownloads(packageName);
+      const details = await fetchdetails(packageName);
 
       if (data && data2) {
         const { popularity, quality, maintenance } = data2.score.detail;
@@ -94,40 +112,48 @@ io.on("connection", (socket) => {
           quality,
           maintenance,
           description: metadata.description,
-          lastPublished: metadata.date,
+          lastPublished: details.time.modified,
           license: metadata.license,
-          currentVersion: metadata.version,
+          currentVersion: details["dist-tags"].latest,
           maintainers: metadata.maintainers,
           repository: metadata.links.repository,
+          versions: details.versions
+          
         };
-        console.log(packageData[packageName]);
+        // console.log(packageData[packageName]);
+        console.log(packageData)
+        currentpackage = packageData[packageName];
+        // console.log(details.versions)
+        // console.log(currentpackage);
+
       }
     }
 
     const interval = setInterval(() => {
-      if (packageData[packageName]) {
-        const elapsedSeconds = (Date.now() - packageData[packageName].lastUpdated) / 1000;
-        const delta = packageData[packageName].rate * elapsedSeconds;
-        packageData[packageName].currentDownloads += delta;
-        packageData[packageName].weeklyDownloads += delta;
-        packageData[packageName].totalDownloads += delta;
-        packageData[packageName].lastUpdated = Date.now();
+      if (currentpackage) {
+        const elapsedSeconds = (Date.now() - currentpackage.lastUpdated) / 10000;
+        const delta = currentpackage.rate * elapsedSeconds;
+        currentpackage.currentDownloads += delta;
+        currentpackage.weeklyDownloads += delta;
+        currentpackage.totalDownloads += delta;
+        currentpackage.lastUpdated = Date.now();
 
         socket.emit("packageUpdate", {
-          package: packageName,
-          estimatedDownloads: Math.floor(packageData[packageName].currentDownloads),
-          baseDownloads: packageData[packageName].baseDownloads,
-          popularity: packageData[packageName].popularity,
-          quality: packageData[packageName].quality,
-          maintenance: packageData[packageName].maintenance,
-          description: packageData[packageName].description,
-          lastPublished: packageData[packageName].lastPublished,
-          license: packageData[packageName].license,
-          currentVersion: packageData[packageName].currentVersion,
-          maintainers: packageData[packageName].maintainers,
-          repository: packageData[packageName].repository,
-          weeklyDownloads: Math.floor(packageData[packageName].weeklyDownloads),
-          totalDownloads: Math.floor(packageData[packageName].totalDownloads),
+          package: currentpackage,
+          estimatedDownloads: Math.floor(currentpackage.currentDownloads),
+          baseDownloads: currentpackage.baseDownloads,
+          popularity: currentpackage.popularity,
+          quality: currentpackage.quality,
+          maintenance: currentpackage.maintenance,
+          description: currentpackage.description,
+          lastPublished: currentpackage.lastPublished,
+          license:currentpackage.license,
+          currentVersion: currentpackage.currentVersion,
+          maintainers: currentpackage.maintainers,
+          repository: currentpackage.repository,
+          weeklyDownloads: Math.floor(currentpackage.weeklyDownloads),
+          totalDownloads: Math.floor(currentpackage.totalDownloads),
+          versions: currentpackage.versions
         });
       }
     }, 1000);
@@ -138,7 +164,7 @@ io.on("connection", (socket) => {
     });
   });
 });
-
-server.listen(5000, () => {
-  console.log("Server running on port 5000");
+const port = process.env.PORT || 5000;
+server.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
